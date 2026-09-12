@@ -2,17 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y git curl build-essential && rm -rf /var/lib/apt/lists/*
+# Copy requirements file first
+COPY requirements.txt .
 
-# Install essential python packages for agent workspace
-RUN pip install --no-cache-dir fastapi uvicorn google-genai requests pydantic
+# Install all the libraries mentioned in requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy local files
+# Copy the rest of the code
 COPY . .
 
-# Expose port for Render
 EXPOSE 10000
 
-# Start command for container
+# Start the bot and web server
 CMD ["python", "app.py"]
