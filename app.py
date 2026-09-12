@@ -5,11 +5,11 @@ import uvicorn
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
+from contextlib import asynccontextmanager
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "MISSING_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "MISSING_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-app = FastAPI()
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -31,18 +31,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Dono ko ek sath (bina crash ke) start karne ka logic
-@app.on_event("startup")
-async def startup_event():
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=True)
+# Background task for Telegram so it doesn't block the Web Server
+async def start_telegram_bot():
+    try:
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Telegram Bot failed to start: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
+# Modern FastAPI Lifespan (No more deprecation warnings or timeouts)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Run bot in the background
+    bot_task = asyncio.create_task(start_telegram_bot())
+    yield
+    # Shutdown
     await application.updater.stop()
     await application.stop()
     await application.shutdown()
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 def home():
