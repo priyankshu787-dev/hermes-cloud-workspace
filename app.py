@@ -1,15 +1,16 @@
 import os
-import asyncio
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 import uvicorn
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
-from contextlib import asynccontextmanager
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
+app = FastAPI()
+
+# Telegram Application Setup (Without polling)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -31,35 +32,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 application.add_handler(CommandHandler("start", start_command))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Background task for Telegram so it doesn't block the Web Server
-async def start_telegram_bot():
-    try:
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling(drop_pending_updates=True)
-    except Exception as e:
-        print(f"Telegram Bot failed to start: {e}")
+@app.on_event("startup")
+async def startup_event():
+    await application.initialize()
 
-# Modern FastAPI Lifespan (No more deprecation warnings or timeouts)
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: Run bot in the background
-    bot_task = asyncio.create_task(start_telegram_bot())
-    yield
-    # Shutdown
-    await application.updater.stop()
-    await application.stop()
-    await application.shutdown()
-
-app = FastAPI(lifespan=lifespan)
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    """Yeh route Telegram se direct message receive karega"""
+    data = await request.json()
+    update = Update.de_json(data, application.bot)
+    await application.process_update(update)
+    return {"status": "ok"}
 
 @app.get("/")
 def home():
-    return {"status": "Hermes Content Factory is ONLINE 24/7"}
-
-@app.get("/ping")
-def ping():
-    return {"ping": "pong - System is awake"}
+    return {"status": "Hermes Content Factory is ONLINE 24/7 (Webhook Mode)"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=10000)
